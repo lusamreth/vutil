@@ -1,0 +1,24 @@
+Commands:
+-gvtg-info | -i :
+    Useful for finding information about gvt setup!
+
+--setup | -s : 
+    RUN pre-setup config including mounting-pulseaudio ;
+    clearing hugepage ; and setting it back to a given value
+
+--mount-pa | -pa :
+    Mounting pulse audio means checking the server path and 
+    comparing to the vm param(qemu-arg); if both of them matched ,the test 
+    passed.Otherwise it will alert the user to change vm arg;
+
+--disable-gvtg | -dg
+    Disabling gvtg after you stop running vm!
+
+--hugepage [arg : hugepages(int)]
+    setting hugepages for 
+
+--resetpage
+    free the allocated hugepages(memory) for the host after 
+    the vm stop;
+
+

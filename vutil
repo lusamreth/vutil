@@ -1,0 +1,209 @@
+#!/bin/bash
+
+PROGRAM_DIR="/home/lusamreth/vutil"
+dependencies=(
+    "qemu_util"
+    "qemu_util_man.txt"
+    "gvtg"
+)
+
+echoerr() { echo "$@" 1>&2; }
+function dependencyCheck {
+
+    if [[ -z $PROGRAM_DIR ]];then
+        echoerr "Failed to get program root dir!" 
+        exit 1
+    fi
+
+    i=0
+    cache_err_msg=()
+    for dep in "${dependencies[@]}" 
+    do
+        path="$PROGRAM_DIR/$dep"
+        if [[ -n $(ls -l $path 2>&1 >/dev/null ) ]];then
+            cache_err_msg[$i]="Missing dependency ${dep}"
+            i=$((i+1))
+        fi
+    done
+    if [[ ${#cache_err_msg[@]} > 0 ]];then
+        echoerr "$cache_err_msg[@]"
+    fi
+}
+
+# enable or disable it 
+dependencyCheck
+
+source "$PROGRAM_DIR/qemu_util"
+
+DOMAIN=""
+GVTG_RUN="$PROGRAM_DIR/gvtg"
+ARGS=("$@")
+
+DomainISSet=false
+DomainIndex=-1 # zero cuz program to ignore first one shot arg
+HelpIndex=0
+
+function set_default_domain {
+    echo $1 > "/tmp/vutil_default_domain"
+}
+
+#function diffs() {
+#        diff "${@:3}" <(sort "$1") <(sort "$2")
+#}
+
+function filter_exception() {
+
+   args_len=${#ARGS[@]}
+   for((i=0;i<$args_len;i++)) {
+       prefix=${ARGS[i]}
+       NIndex=$((i+1))
+
+       next_arg=${ARGS[NIndex]}
+        
+       case $prefix in 
+           "-d" | "--domain")
+               if [[ -z $next_arg  ]];then 
+                   return
+               fi
+
+               echo "Domain is set to ${ARGS[NIndex]}"
+
+               DOMAIN=$next_arg
+               DomainIndex=$NIndex
+               DomainISSet=true
+               break;;
+
+           "-h" | "--help" )
+                HelpIndex=$((HelpIndex + 1)) && continue
+                break;;
+
+            "--default" )
+                echo "setting default!"
+                set_default_domain $next_arg 
+                break;;
+       esac
+
+   }
+}
+
+
+isPrefix(){
+    if [[ "$1" =~ ^"--".* ]] || [[ "$1" =~ ^-.* ]];then
+        echo true
+    else
+        echo false
+    fi
+}
+
+declare -A pair_args
+pair_args_keys=()
+
+MapArg() {
+    for((i=0;i<${#ARGS[@]};i++)){
+        
+        arg=${ARGS[i]}
+        n=$((i+1))
+        next=${ARGS[n]}
+        
+        PRE=$(isPrefix $arg)
+        [[ $PRE == false ]] && continue
+        # skip if arg is to set domain name 
+        [[ $i == $DomainIndex ]] || [[ $i == $((DomainIndex - 1)) ]] && continue
+        pair_args_keys+=($arg)
+
+        #predict if nxt arg is prefix command / argument
+        if [[ !$(isPrefix $next) ]];then
+           pair_args[$arg]="$next" && continue
+        fi
+    }
+}
+
+
+
+#RUNTIME
+Mapper() {
+    #echo "new ${newargs["--s"]}"
+    case "$1" in
+        "--resetpage")
+            ResetHugepage ;;
+        "--hugepage") 
+            AllocateHugepage $2;;
+        "--enable-gvtg" | "-eg")
+            . $GVTG_RUN --enable;;
+        "--disable-gvtg" | "-dg")
+            . $GVTG_RUN --disable;;
+        "--gvtg-info" | "-i")
+            . $GVTG_RUN  --info;;
+        "--mount-pa" | "-pa")
+            MountPulseaudio ;;
+        "--setup" | "-s")
+            setup_vm $GVTG_RUN $2;;
+        *)
+            echo "invalid command! : $1" ;;
+            #print_help;;
+    esac
+}
+
+#NOOB NOTE ;)
+# capture stderr and stream to stdout
+# stderr file-descriptor 2
+# stdout file-descriptor 1; 
+# & indentify file descriptor and not normal file
+# so >& means redirect to fd not file
+# /dev/null discard 
+
+function check_exception {
+   # only print help message and ignore 
+   if [[ $HelpIndex > 0 ]];then 
+        print_help
+        exit
+   fi
+    
+    # if both default and -d is passed prioritize -d instead
+    if [[ $DomainISSet == false ]];then
+        if [[ -f "/tmp/vutil_default_domain" ]];then
+            default=$(cat "/tmp/vutil_default_domain") 
+            if [[ -n $default ]];then
+                echo "Using the default $default"
+                DOMAIN=$default
+            else
+                echo "Empty Default!"
+                exit
+            fi
+        else
+            echo "domain is not set!"
+            exit
+        fi
+    fi
+
+    FAILURE="$(virsh dumpxml $DOMAIN 2>&1 >/dev/null)"
+    if [[ -n $FAILURE ]];then
+        echo $FAILURE
+        echo -n "Invalid Domain name!"
+        exit
+    fi
+}
+
+function scan_commands {
+    for key in "${pair_args_keys[@]}" 
+    do
+        secondary_arg="${pair_args["--hugepage"]}"
+        if  [[ -n $secondary_arg ]];then 
+            Mapper $key $secondary_arg
+        else
+            Mapper $key
+        fi
+    done
+}
+
+function runtime {
+    check_exception
+    MapArg
+    scan_commands
+
+}
+
+filter_exception
+runtime
+
+#Mapper
