@@ -1,42 +1,21 @@
 #!/bin/bash
 
-PROGRAM_DIR="/home/lusamreth/vutil"
+PROGRAM_DIR=$(dirname $(realpath $0))
+source "$PROGRAM_DIR/qemu_util.sh" 2>&1 > /dev/null
+source "$PROGRAM_DIR/utility.sh" 2>&1 > /dev/null
+
 dependencies=(
-    "qemu_util"
+    "qemu_util.sh"
     "qemu_util_man.txt"
-    "gvtg"
+    "gvtg.sh"
 )
 
-echoerr() { echo "$@" 1>&2; }
-function dependencyCheck {
-
-    if [[ -z $PROGRAM_DIR ]];then
-        echoerr "Failed to get program root dir!" 
-        exit 1
-    fi
-
-    i=0
-    cache_err_msg=()
-    for dep in "${dependencies[@]}" 
-    do
-        path="$PROGRAM_DIR/$dep"
-        if [[ -n $(ls -l $path 2>&1 >/dev/null ) ]];then
-            cache_err_msg[$i]="Missing dependency ${dep}"
-            i=$((i+1))
-        fi
-    done
-    if [[ ${#cache_err_msg[@]} > 0 ]];then
-        echoerr "$cache_err_msg[@]"
-    fi
-}
-
 # enable or disable it 
-dependencyCheck
+dependencyCheck ${dependencies[@]}
 
-source "$PROGRAM_DIR/qemu_util"
 
 DOMAIN=""
-GVTG_RUN="$PROGRAM_DIR/gvtg"
+GVTG_RUN="$PROGRAM_DIR/gvtg.sh"
 ARGS=("$@")
 
 DomainISSet=false
@@ -44,14 +23,18 @@ DomainIndex=-1 # zero cuz program to ignore first one shot arg
 HelpIndex=0
 
 function set_default_domain {
-    echo $1 > "/tmp/vutil_default_domain"
+    p="/tmp/vutil_default_domain"
+    if [[ -z $p ]];then
+        mktemp -f $p
+    fi
+    echo $1 > $p
 }
 
 #function diffs() {
 #        diff "${@:3}" <(sort "$1") <(sort "$2")
 #}
 
-function filter_exception() {
+function CheckSpecialInput() {
 
    args_len=${#ARGS[@]}
    for((i=0;i<$args_len;i++)) {
@@ -78,8 +61,7 @@ function filter_exception() {
                 break;;
 
             "--default" )
-                echo "setting default!"
-                set_default_domain $next_arg 
+                set_default_domain $next_arg && continue
                 break;;
        esac
 
@@ -136,6 +118,9 @@ Mapper() {
             . $GVTG_RUN  --info;;
         "--mount-pa" | "-pa")
             MountPulseaudio ;;
+        "--default" )
+            echo "setting default!"
+            exit 0;;
         "--setup" | "-s")
             setup_vm $GVTG_RUN $2;;
         *)
@@ -178,7 +163,7 @@ function check_exception {
 
     FAILURE="$(virsh dumpxml $DOMAIN 2>&1 >/dev/null)"
     if [[ -n $FAILURE ]];then
-        echo $FAILURE
+        printf $FAILURE
         echo -n "Invalid Domain name!"
         exit
     fi
@@ -203,7 +188,7 @@ function runtime {
 
 }
 
-filter_exception
+CheckSpecialInput
 runtime
 
 #Mapper

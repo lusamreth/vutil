@@ -11,6 +11,9 @@ Commands:
     comparing to the vm param(qemu-arg); if both of them matched ,the test 
     passed.Otherwise it will alert the user to change vm arg;
 
+--enable-gvtg | -eg :
+    Enabling gvtg before running vm!
+
 --disable-gvtg | -dg
     Disabling gvtg after you stop running vm!
 
