@@ -135,9 +135,9 @@ function StartlG {
     echo "Since this scripts enable gvtg! the default renderer is opengl(igpu)!"
     EscapeChar=69 # <- F12
     ReadConfigFile "looking-glass-client"
-    for key in ${!$CONFIG[@]} {
-
-    }
+    for key in ${!$CONFIG[@]};do
+        if ${CONFIG[vsync]}
+    done
     looking-glass-client -F -g OpenGL -m $EscapeChar opengl:vsync
 }
 
