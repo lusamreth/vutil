@@ -38,7 +38,7 @@ function dependencyCheck {
         if [[ -n $(ls -l $path 2>&1 >/dev/null ) ]];then
             cache_err_msg[$i]="Missing dependency ${dep}"
             i=$((i+1))
-        fi
+        fi 
     }
     if [[ ${#cache_err_msg[@]} > 0 ]];then
         echoerr "$cache_err_msg[@]"
@@ -46,8 +46,6 @@ function dependencyCheck {
 }
 
 dir=$(dirname $(realpath $(echo $0)))
-source "$dir/bash-ini-parser"
-
 declare -A CONFIG
 function ReadConfigFile {
     
@@ -60,7 +58,6 @@ function ReadConfigFile {
         echo "No config files!"
     fi
 
-    echo $dir
     FETCH_SECTION=$1
     SECs=($(crudini --get "$Conf_dir/config.ini" $FETCH_SECTION))
     # generate dictionary 
@@ -150,10 +147,6 @@ function LookUpCode {
     crudini --get "$dir/SDLS.ini" $PREFIX num
 }
 
-LookUpCode "backspace"
-sleep 0.5s
-ReadConfigFile "looking-glass-client"
-echo ${CONFIG["vsync"]}
 
 # Straight from stackoverflow!!!! 
 # want a sufficient config parser(ini)

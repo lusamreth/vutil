@@ -1,11 +1,11 @@
 #!/bin/bash
 
+# This script was build with lG verion a5194b94ac
 # Success Run gvtg passthrough without building custom qemu (REFRESH_RATE_FIX)
 if [[ -z $(whereis looking-glass-client) ]];then
     echo "Missing looking-glass-client!"
     exit
 fi
-
 echoerr() { echo -e "$@" 1>&2; }
 
 #Big brain solution
@@ -57,10 +57,12 @@ RESOLUTION=("1080" "1920")
 function create_shm {
     PATH="/dev/shm/looking-glass"
     # created with user permission(w+r)
-    if [[ -z $PATH ]];then 
-        mktemp -d $PATH
+    if [[ ! -d $PATH ]];then 
+        #BAHHHHHHH SYSTEMD REEEEEEEEE!
+        #idk sorry
+        echo "bruhsca"
+        /bedrock/cross/bin/systemd-tmpfiles --create /bedrock/strata/arch/etc/tmpfiles.d/10-looking-glass.conf
     fi
-    #systemd-tmpfiles --create /bedrock/strata/arch/etc/tmpfiles.d/10-looking-glass.conf
 }
 
 
@@ -69,7 +71,7 @@ function create_shm {
 DUMP=$(virsh dumpxml window10ame)
 
 function CheckQxl {
-    qxl_enabled=echo -e "$DUMP" | grep "model type='qxl'"
+    qxl_enabled=$(echo -e "$DUMP" | grep "model type='qxl'")
 
     if [[ -z $qxl_enabled ]];then
         echo "Make sure to set qxl to none after installing intel driver!"
@@ -124,21 +126,62 @@ CheckSpec(){
     Checkdmabuff
 }
 
+LG_ARGS=""
+source "$(dirname $(realpath $0))/utility.sh"
+function GrabLGConfig {
+    ReadConfigFile "looking-glass-client"
+    
+    for key in ${!CONFIG[@]};do
+        Input="$(looking-glass-client --help  | grep -i $key | awk '{print $2}')"
+        # check if boolean value
+        if [[ ${CONFIG[$key]} == true ]];then
+            LG_ARGS+="$Input "
+        else
+            LG_ARGS+="$Input=${CONFIG[$key]} "
+        fi
+    done
+
+    case $(echo ${CONFIG['renderer']} | tr '[:upper:]' '[:lower:]') in
+        "opengl")
+            render_type="opengl"
+        ;;
+        "egl" )
+            render_type="egl"
+        ;;
+        *)
+            echo "Render type not supported!"
+            exit 1
+            ;;
+    esac
+    echo "Render type $render_type"
+        # renderer value are all booleans
+    ReadConfigFile $render_type
+    for key in ${!CONFIG[@]};do
+        if [[ ${CONFIG[$key]} ]];then
+            LG_ARGS+="$render_type:$key "
+        fi
+    done
+    echo "$LG_ARGS"
+}
+
 function StartlG {
     DOMAIN=$1
-    start_err=$(virsh start $DOMAIN 2 2>&1 >> /dev/null)
+    echo "br $LG_ARGS"
+    GrabLGConfig
+    create_shm
+    #start_err=$(virsh start $DOMAIN 2 2>&1 >> /dev/null)
     if [[ -n $start_err ]];then
         echoerr "Cannot Start virtual machine"
         echoerr $start_err
     fi
-    readPrompt "Running with Fullscreen?" 
+
+    ReadPrompt "Running with Fullscreen?" 
     echo "Since this scripts enable gvtg! the default renderer is opengl(igpu)!"
     EscapeChar=69 # <- F12
-    ReadConfigFile "looking-glass-client"
-    for key in ${!$CONFIG[@]};do
-        if ${CONFIG[vsync]}
-    done
-    looking-glass-client -F -g OpenGL -m $EscapeChar opengl:vsync
+    echo $LG_ARGS
+    /bedrock/cross/bin/looking-glass-client $LG_ARGS
+    #looking-glass-client
 }
 
-StartlG
+#GrabLGConfig
+StartlG $1

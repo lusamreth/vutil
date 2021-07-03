@@ -8,6 +8,7 @@ dependencies=(
     "qemu_util.sh"
     "qemu_util_man.txt"
     "gvtg.sh"
+    "looking-glass-helper.sh"
 )
 
 # enable or disable it 
