@@ -1,0 +1,4 @@
+#!/bin/bash
+
+source "/home/lusamreth/vutil/looking-glass-helper.sh"
+StartLG $1

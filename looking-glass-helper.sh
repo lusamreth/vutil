@@ -6,6 +6,7 @@ if [[ -z $(whereis looking-glass-client) ]];then
     echo "Missing looking-glass-client!"
     exit
 fi
+
 echoerr() { echo -e "$@" 1>&2; }
 
 #Big brain solution
@@ -38,8 +39,8 @@ function generate_ivshmem {
     RES=($1 $2)
     echo ${RES[@]}
     if [[ ${#RES[@]} < 2 ]];then 
-        echo "Require 2args(vertical and horizontal) to generate!"
-        exit 0
+        echoerr "Require 2args(vertical and horizontal) to generate!"
+        exit 1
     fi
 
     Hpixel=${RES[0]}
@@ -56,19 +57,25 @@ RESOLUTION=("1080" "1920")
 # i used systemd-tmpfiles from bedrock linux
 function create_shm {
     PATH="/dev/shm/looking-glass"
+    echo "Shmem Creation..."
     # created with user permission(w+r)
     if [[ ! -d $PATH ]];then 
         #BAHHHHHHH SYSTEMD REEEEEEEEE!
         #idk sorry
-        echo "bruhsca"
-        /bedrock/cross/bin/systemd-tmpfiles --create /bedrock/strata/arch/etc/tmpfiles.d/10-looking-glass.conf
+        if [[ ! -f $(whereis "systemd-tmpfiles") ]];then
+            echo "Using normal mktemp!"
+            mktemp -dp /dev/shm/looking-glass
+        else
+            echo "using systemd-tmpfiles"
+            /bedrock/cross/bin/systemd-tmpfiles --create /bedrock/strata/arch/etc/tmpfiles.d/10-looking-glass.conf
+        fi
     fi
+
+    echo "Shared memory located at /dev/shm/looking-glass"
 }
 
 
 #<address type='pci' domain='0x0000' bus='0x09' slot='0x04' function='0x0'/>
-
-DUMP=$(virsh dumpxml window10ame)
 
 function CheckQxl {
     qxl_enabled=$(echo -e "$DUMP" | grep "model type='qxl'")
@@ -79,18 +86,22 @@ function CheckQxl {
 }
 
 function CheckGvtg {
+    echo "Checking if gvtg is enabled..."
     GvtgId=$1
     check_addrs=$(echo -e $DUMP | grep -A 3 "mdev" | grep "uuid='$GvtgId'")
+
     if [[ -z $check_addrs ]];then
+        echoerr  "GVTG errors:"
         echoerr "BadAddress!\nPlease consider rechecking gvtg-address!"
-        echo false
-        exit 0
+        exit 1
     fi
 }
 
 function CheckShmem {
+    
+    IFS=$'x' read -ra RESOLUTION <<< "$1"
     REQUIRED_MEM=$(generate_ivshmem ${RESOLUTION[@]})
-
+    
     echo "Checking Spec..."
     SPEC=("<shmem name='looking-glass'>"
     "<model type='ivshmem-plain'/>"
@@ -105,14 +116,14 @@ function CheckShmem {
             echoerr "Xml doesn't match with spec!:"
             echoerr "TEST :$TEST"
             echoerr "Spec : ${SPEC[i]}"
-            exit 0
+            exit 1
         fi
     }
-    echo "Done!"
 }
 
 function Checkdmabuff {
-    dma_on=echo -e "$DUMP" | grep -i "x-igd-opregion=on"
+    echo "checking dma buffer..."
+    dma_on=$(echo -e "$DUMP" | grep -i "x-igd-opregion=on")
     if [[ -z $dma_on ]];then
         echoerr "Consider enabling dma-buf!"
         echo "<qemu:arg value="-set"/>"
@@ -121,18 +132,40 @@ function Checkdmabuff {
 }
 
 CheckSpec(){
-    CheckGvtg
-    CheckShmem
+
+    DOMAIN="$1"
+    DUMP=$(virsh dumpxml $DOMAIN)
+
+    readConfigFile "gvtg"
+    Addrs=$(echo ${CONFIG['address']} | echo "fc1cc067-127d-44e6-a1de-b8158d7cc6e8")
+    res=$(echo "${CONFIG['res']}" || ${CONFIG['resolution']})
+
+    echo -e "resolution:$res\ngvtg:$Addrs"    
+    draw_dash
+
+    CheckGvtg $Addrs
+    CheckShmem $res
     Checkdmabuff
+    echo "Done!"
 }
 
-LG_ARGS=""
+declare LG_OWNER
+declare LG_ARGS
 source "$(dirname $(realpath $0))/utility.sh"
-function GrabLGConfig {
-    ReadConfigFile "looking-glass-client"
+SpicyArgs=""
+
+function grabLGConfig {
+    readConfigFile "looking-glass-client" 
     
+    LG_OWNER=${CONFIG[owner]}
+    echo "sll $LG_OWNER"
+    #[[ -z  ]]
+    #${CONFIG[owner]}
     for key in ${!CONFIG[@]};do
-        Input="$(looking-glass-client --help  | grep -i $key | awk '{print $2}')"
+        key_inp=$(echo $key | tr "-" ":")
+        Input="$(sudo -u $LG_OWNER looking-glass-client --help  | grep -i "$key_inp" | awk '{print $2}')"
+
+        [[ -z $Input ]] || [[ ${CONFIG[$key]} == false ]] && continue
         # check if boolean value
         if [[ ${CONFIG[$key]} == true ]];then
             LG_ARGS+="$Input "
@@ -151,37 +184,38 @@ function GrabLGConfig {
         *)
             echo "Render type not supported!"
             exit 1
-            ;;
+        ;;
     esac
+
     echo "Render type $render_type"
         # renderer value are all booleans
-    ReadConfigFile $render_type
+    readConfigFile $render_type 
     for key in ${!CONFIG[@]};do
         if [[ ${CONFIG[$key]} ]];then
-            LG_ARGS+="$render_type:$key "
+            SpicyArgs+="$render_type:$key "
         fi
     done
-    echo "$LG_ARGS"
 }
 
-function StartlG {
-    DOMAIN=$1
-    echo "br $LG_ARGS"
-    GrabLGConfig
-    create_shm
-    #start_err=$(virsh start $DOMAIN 2 2>&1 >> /dev/null)
-    if [[ -n $start_err ]];then
-        echoerr "Cannot Start virtual machine"
-        echoerr $start_err
-    fi
 
-    ReadPrompt "Running with Fullscreen?" 
+function StartLG {
+    
+    draw_dash
+
     echo "Since this scripts enable gvtg! the default renderer is opengl(igpu)!"
-    EscapeChar=69 # <- F12
-    echo $LG_ARGS
-    /bedrock/cross/bin/looking-glass-client $LG_ARGS
-    #looking-glass-client
+    change_conf "/home/lusamreth/.config/vutil/"
+    grabLGConfig &> /dev/null 
+
+    CheckSpec $1
+    draw_dash
+
+    echo "==>Arguments : ${LG_ARGS[@]}"
+    draw_dash
+    echo "LOOKING_GLASS_CLIENT_LOGS:"
+    export XDG_RUNTIME_DIR=/dev/shm/looking-glass
+    /usr/bin/sudo --preserve-env=XDG_RUNTIME_DIR -u $LG_OWNER looking-glass-client $LG_ARGS
 }
 
-#GrabLGConfig
-StartlG $1
+if [[ $1 == "start" ]];then
+    StartLG $2
+fi

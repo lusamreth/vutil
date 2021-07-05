@@ -65,7 +65,7 @@ AllocateHugepage() {
     Retry=0
     
     #Retry 1000 times
-    while [[ $Hugepages != $AllocPage ]] && [[ $Retry < 100 ]]
+    while [[ $Hugepages != $AllocPage ]] && [[ $Retry < 1000 ]]
     do
         echo 1 > /proc/sys/vm/compact_memory
         # 3 means destroying all caches
@@ -101,8 +101,8 @@ AllocateHugepage() {
 #echo "12 23 11" | awk '{split($0,a); print a[3]; print a[2]; print a[1]}'
 #echo "12,23,11" | awk '{split($0,a,'{delim}'); print a[3]; print a[2]; print a[1]}'
 ResetHugepage() {
-    #VirtId=$(pidof libvirt)
-    VirtId=$(virsh list | grep $DOMAIN | awk '{split($0,a);print a[3]}')
+    VirtId=$(pidof libvirt)
+    #VirtId=$(virsh list --all | grep -i $DOMAIN | awk '{split($0,a);print a[3]}')
     if [[ $VirtId -ne " " ]]
         then echo "The virtual machine is still running!"
         echoerr "Cannot deallocate hugepages!"
@@ -148,29 +148,34 @@ MountPulseaudio() {
     }
 
     FetchPA
+
     if [[ ${#PA_SERVER[@]} -gt 1 ]];then
         echo "Error! Pa server need to be only one!"
         return 
     fi
 
-    existed_server=$(virsh dumpxml $DOMAIN | grep "server=unix:")
-    DEV=$(virsh dumpxml $DOMAIN | grep "ich9-intel-hda")
-    
-    if [[ -z $DEV ]];then
+    echo "scannin domain $DOMAIN"
+    DUMP="$(virsh dumpxml $DOMAIN)"
+    existed_server=$(echo -e "$DUMP" | grep "server=unix:")
+    DEV=$(echo -e "$DUMP" | grep -i "ich9-intel-hda")
+
+    if [[ -z "$DEV" ]];then
         function AppendingHDA {
             echo "Inserting.."
             virt-xml $DOMAIN --edit --qemu-commandline="ich9-intel-hda,bus=pcie.0,addr=0x1b" &&
             virt-xml $DOMAIN --edit --qemu-commandline="hda-micro,audiodev=hda" &&
             echo "Completed"
         }
-        ReadPrompt "Setting ich9-intel-hda as audio device in order to work! [y/n]" AppendingClosure
+
+        readPrompt "Setting ich9-intel-hda as audio device in order to work! [y/n]" AppendingClosure
     fi
+
     if [[ -z $existed_server ]];then
         function AppendingPA {
             echo "Appending pulseaudio server..."
             virt-xml $DOMAIN --edit --qemu-commandline="server=unix:$PA_SERVER[0]" 
         }
-        ReadPrompt "Require pulseaudio server! " AppendingPA 
+        readPrompt "Require pulseaudio server! " AppendingPA 
     fi
 
     IFS=$',' read -ra CHUNKS <<<  $existed_server
@@ -225,27 +230,54 @@ function print_help {
     cat "$runtime_dir/qemu_util_man.txt"     
 }
 
-function setup_vm {
+function startHook {
     
     GVTG_PATH=$1
     echo "setting up virtual machine"
 
+    draw_dash
     DEFAULT_HP=2056
-    HP=$2
-
+    HP=$1
+    
     if [[ -z $HP ]];then
         HP=$DEFAULT_HP
     fi
 
     echo "hugepage point to default $HP"
-    ResetHugepage 
-
-    # prevent race condition
-    sleep 1s
-    AllocateHugepage $HP
-    bash $GVTG_PATH "--enable"
     MountPulseaudio
+    draw_dash
+    ResetHugepage 
+    # prevent race condition
+    
+    wait $(jobs -p)
+    draw_dash
+    AllocateHugepage $HP 
+    enableGvtg
 
+}
+
+stopHook() {
+    echo "Initializing stopping hook!"
+    ResetHugepage
+    disableGvtg
+    wait $(jobs -p)
+}
+
+function stop_vm {
+    domain=$1
+    echo "Shutting down vm $domain..."
+    virsh shutdown $domain
+    echo "Sucessfully shutdown"
+}
+
+function destroyVm {
+    domain=$1
+    completed=false
+    echo "forcing off vm $domain..."
+    timeout -k 30 20 virsh destroy $domain && completed=true
+    echo $completed
+    stopHook
+    echo "Sucessfully forced shutdown"
 }
 
 

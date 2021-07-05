@@ -15,23 +15,20 @@ SYSPATH="/sys/devices/pci${gdom}/${pcilane}/mdev_supported_types/i915-GVTg_V5_4"
 #"/sys/bus/pci/devices/pci${gdom}/${pci-lane}/mdev_supported_types/${gtype}/remove"
 DISABLEPATH="/sys/bus/pci/devices/$pcilane/$guid/remove"
 
-
-if [[ $1 = "--enable" || $1 = "-e" ]];
-then 
+enableGvtg(){
     if [[ -d "$SYSPATH/devices/$guid" ]]; then
         echo "intel's virtual gpu is already created!"
         echo "GPU DEVICE PATH : $SYSPATH/devices/$guid"
     else
         echo "Enabling gvtg" && echo "${guid}" > "$SYSPATH/create"
     fi
-fi
+}
 
-if [[ $1 = "--disable"  || $1 = "-d" ]];then
+disableGvtg(){
     ls $DISABLEPATH
     echo 1 > $DISABLEPATH &&
     echo "Disable gvtg"
-fi
-
+}
 #EXPECTED
 QEMUCMD='
   <qemu:commandline>
@@ -85,9 +82,9 @@ function split_newline {
     #echo -e ${split_iter[1]}
     echo -e $split_iter
 }
-#println "hi"
-if [[ $1 = "--info"  ||  $1 = "-i" ]]
-    then INFO_LINES=(
+
+function provideGvtgInfo(){
+    INFO_LINES=(
         "GVT_GUID:\n${guid}\n" #hello
         "QEMUCMD:\n${QEMUCMD}"
         "GVT-DEVICE:\n${MDEV}"
@@ -98,6 +95,5 @@ if [[ $1 = "--info"  ||  $1 = "-i" ]]
     }
     echo "Tree:"
     tree /sys/devices/pci0000:00/0000:00:02.0/mdev_supported_types/
-fi
-
+}
 

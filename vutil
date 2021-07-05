@@ -1,13 +1,12 @@
 #!/bin/bash
 
 PROGRAM_DIR=$(dirname $(realpath $0))
-source "$PROGRAM_DIR/qemu_util.sh" 2>&1 > /dev/null
-source "$PROGRAM_DIR/utility.sh" 2>&1 > /dev/null
-
+source "$PROGRAM_DIR/utility.sh"
 dependencies=(
     "qemu_util.sh"
     "qemu_util_man.txt"
     "gvtg.sh"
+    "utility.sh"
     "looking-glass-helper.sh"
 )
 
@@ -16,12 +15,11 @@ dependencyCheck ${dependencies[@]}
 
 
 DOMAIN=""
-GVTG_RUN="$PROGRAM_DIR/gvtg.sh"
 ARGS=("$@")
 
 DomainISSet=false
 DomainIndex=-1 # zero cuz program to ignore first one shot arg
-HelpIndex=0
+config_path=""
 
 function set_default_domain {
     p="/tmp/vutil_default_domain"
@@ -36,7 +34,6 @@ function set_default_domain {
 #}
 
 function CheckSpecialInput() {
-
    args_len=${#ARGS[@]}
    for((i=0;i<$args_len;i++)) {
        prefix=${ARGS[i]}
@@ -50,20 +47,15 @@ function CheckSpecialInput() {
                    return
                fi
 
-               echo "Domain is set to ${ARGS[NIndex]}"
-
+               echo "Domain is set to $next_arg"
                DOMAIN=$next_arg
                DomainIndex=$NIndex
                DomainISSet=true
                break;;
-
-           "-h" | "--help" )
-                HelpIndex=$((HelpIndex + 1)) && continue
-                break;;
-
-            "--default" )
-                set_default_domain $next_arg && continue
-                break;;
+           "-c" | "--config")
+               config_path=$next_arg
+               continue
+               ;;
        esac
 
    }
@@ -95,58 +87,66 @@ MapArg() {
         pair_args_keys+=($arg)
 
         #predict if nxt arg is prefix command / argument
-        if [[ !$(isPrefix $next) ]];then
+        if [[ ! $(isPrefix $next) ]];then
            pair_args[$arg]="$next" && continue
         fi
     }
 }
 
-
-
-#RUNTIME
-Mapper() {
-    #echo "new ${newargs["--s"]}"
-    case "$1" in
-        "--resetpage")
-            ResetHugepage ;;
-        "--hugepage") 
-            AllocateHugepage $2;;
-        "--enable-gvtg" | "-eg")
-            . $GVTG_RUN --enable;;
-        "--disable-gvtg" | "-dg")
-            . $GVTG_RUN --disable;;
-        "--gvtg-info" | "-i")
-            . $GVTG_RUN  --info;;
-        "--mount-pa" | "-pa")
-            MountPulseaudio ;;
-        "--default" )
-            echo "setting default!"
-            exit 0;;
-        "--setup" | "-s")
-            setup_vm $GVTG_RUN $2;;
-        *)
-            echo "invalid command! : $1" ;;
-            #print_help;;
-    esac
+function startVm {
+    virsh start $DOMAIN
+    wait $(jobs -p)
+    start_err=""
+    if [[ -n $start_err ]];then
+        echoerr "Cannot Start virtual machine"
+        echoerr $start_err
+        exit 0
+    fi
+    echo "Running $DOMAIN"
 }
 
-#NOOB NOTE ;)
-# capture stderr and stream to stdout
-# stderr file-descriptor 2
-# stdout file-descriptor 1; 
-# & indentify file descriptor and not normal file
-# so >& means redirect to fd not file
-# /dev/null discard 
+isIndependent=true
+#Does not require domain
+# if the user don't specify domain pipe
+# input through this checker
+IndependentCommands() {
+    case "$1" in 
+   "-h" | "--help" )
+        print_help
+        exit 0
+        break;;
+    "--default" )
+        echo "setting default to $2"
+        set_default_domain $2
+        exit 0
+        break;;
+    "--resetpage" | "-r")
+        ResetHugepage 
+        ;;
+    "--hugepage" | "-h") 
+        AllocateHugepage $2
+        ;;
+    "--enable-gvtg" | "-eg")
+        enableGvtg
+        ;;
+    "--disable-gvtg" | "-dg")
+        disableGvtg
+        ;;
+    "--gvtg-info" | "-i")
+        provideGvtgInfo
+        ;;
+    * )
+        isIndependent=false
+        if [[ ! $DomainISSet ]];then
+            echo "Invalid command: $1"
+        fi
+    esac
+    #isIndependent = "run"
+}
 
 function check_exception {
-   # only print help message and ignore 
-   if [[ $HelpIndex > 0 ]];then 
-        print_help
-        exit
-   fi
-    
     # if both default and -d is passed prioritize -d instead
-    if [[ $DomainISSet == false ]];then
+    if [[ ! $DomainISSet ]];then
         if [[ -f "/tmp/vutil_default_domain" ]];then
             default=$(cat "/tmp/vutil_default_domain") 
             if [[ -n $default ]];then
@@ -161,35 +161,75 @@ function check_exception {
             exit
         fi
     fi
-
+    
+    # Test domain
     FAILURE="$(virsh dumpxml $DOMAIN 2>&1 >/dev/null)"
     if [[ -n $FAILURE ]];then
         printf $FAILURE
-        echo -n "Invalid Domain name!"
-        exit
+        echo "Invalid Domain name!"
+        exit 1
     fi
 }
 
+
+
+#RUNTIME
+Mapper() {
+    check_exception
+    #echo "new ${newargs["--s"]}"
+    case "$1" in
+        "--start" | "-st" ) 
+            echo "Starting"
+            startVm
+            ;;
+        "--mount-pa" | "-pa")
+            MountPulseaudio 
+            ;;
+        "--shutdown" | "-off" | "-sd")
+            stop_vm $DOMAIN
+            ;;
+        "--destroy" | "--ds" )
+            destroyVm $DOMAIN
+            ;;
+        "--setup" | "-s")
+            startHook $2
+            wait $(jobs -p)
+            echo "Setup done!"
+            ;;
+        *)
+            IndependentCommands $1
+            ;;
+            #print_help;;
+    esac
+}
+
+#NOOB NOTE ;)
+# capture stderr and stream to stdout
+# stderr file-descriptor 2
+# stdout file-descriptor 1; 
+# & indentify file descriptor and not normal file
+# so >& means redirect to fd not file
+# /dev/null discard 
+
 function scan_commands {
-    for key in "${pair_args_keys[@]}" 
+    for key in "${pair_args_keys[@]}"
     do
-        secondary_arg="${pair_args["--hugepage"]}"
-        if  [[ -n $secondary_arg ]];then 
-            Mapper $key $secondary_arg
+        secondary_arg="${pair_args["$key"]}"
+        if [[ $DomainISSet == false ]];then 
+            IndependentCommands $key $secondary_arg 
+            # IndependentCommands cannot run domain-based command
+            # but domain-based can run !
+            [[ $isIndependent == false ]] && Mapper $key $secondary_arg 
         else
-            Mapper $key
+            Mapper $key $secondary_arg
         fi
     done
-}
-
-function runtime {
-    check_exception
-    MapArg
-    scan_commands
 
 }
+
 
 CheckSpecialInput
-runtime
+MapArg
+scan_commands
 
-#Mapper
+

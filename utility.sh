@@ -6,7 +6,7 @@ function diffs() {
         diff "${@:3}" <(sort "$1") <(sort "$2")
 }
 
-function ReadPrompt {
+function readPrompt {
     while true
     do
       # (1) prompt user, and read command line argument
@@ -35,6 +35,10 @@ function dependencyCheck {
     for((i=0;i<${#dependencies[@]};i++)) {
         dep=${dependencies[i]}
         path="$PROGRAM_DIR/$dep"
+        if [[ "$dep" == *.sh ]];then
+            source "$path" 2>&1 > /dev/null
+        fi
+
         if [[ -n $(ls -l $path 2>&1 >/dev/null ) ]];then
             cache_err_msg[$i]="Missing dependency ${dep}"
             i=$((i+1))
@@ -44,14 +48,15 @@ function dependencyCheck {
         echoerr "$cache_err_msg[@]"
     fi
 }
+configPath=""
 
 dir=$(dirname $(realpath $(echo $0)))
 declare -A CONFIG
-function ReadConfigFile {
+function readConfigFile {
     
     echo "Reading Config..."
-    Conf_dir=$2
-    if [[ -z $2 ]];then
+    Conf_dir=$configPath
+    if [[ -z $configPath ]];then
         Conf_dir="$HOME/.config/vutil"
     fi
     if [[ ! -f "$Conf_dir/config.ini" ]];then
@@ -67,7 +72,9 @@ function ReadConfigFile {
         CONFIG["${SECs[key]}"]="$(crudini --get "$Conf_dir/config.ini" $FETCH_SECTION ${SECs[key]})"
     done
 }
-
+function change_conf {
+    configPath=$1
+}
 
 function WriteSDLIni {
     WordBuffer=$1   
@@ -82,7 +89,7 @@ function WriteSDLIni {
     echo -e "\n"        >> "$dir/SDLS.ini"
 }
 
-function ConvertRawSDLtoIni {
+function convertRawSDLtoIni {
     RAWFILE=$1
     declare -a myarray
     declare -a WordBuffer
@@ -124,20 +131,20 @@ function ConvertRawSDLtoIni {
     done < $RAWFILE
 }
 
-function FindRawSDL {
+function findRawSDL {
 
     if [[ ! -f "$dir/SDLS.ini" ]] ;then
         if [[ ! -f "$dir/RAWSDLScanCode.txt" ]];then
             echoerr "Please copy the table from https://wiki.libsdl.org/SDLScancodeLookup"
             exit 1
         fi
-        ConvertRawSDLtoIni "$dir/RAWSDLScanCode.txt"
+        convertRawSDLtoIni "$dir/RAWSDLScanCode.txt"
     fi
 }
 
 #ConvertRawSDLtoIni "$dir/RAWSDLScanCode.txt"
-function LookUpCode {
-    FindRawSDL
+function lookUpCode {
+    findRawSDL
     keystroke="$1"
     #cat "$dir/SDLS.ini"
 
@@ -145,6 +152,22 @@ function LookUpCode {
     PREFIX="sdl-scancode-$keystroke"
     sleep 0.5s
     crudini --get "$dir/SDLS.ini" $PREFIX num
+}
+
+function draw_dash {
+    export TERMINFO=/bedrock/cross/terminfo
+
+    columns=$(tput cols)
+    rows=$(tput lines)
+
+    i=0
+    dash=""
+    while [[ $i != $columns ]];
+    do
+       dash+="-"
+       ((++i))
+    done
+    echo $dash
 }
 
 

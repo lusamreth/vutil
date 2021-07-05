@@ -9,9 +9,10 @@ fi
 target="/usr/bin"
 dependency=(
     "qemu_util.sh"
-    "qemu_util_man.txt"
-    "gvtg.sh"
     "looking-glass-helper.sh"
+    "qemu_util_man.txt"
+    "utility.sh"
+    "gvtg.sh"
 )
 
 PROGRAM_DIR=$(dirname $(realpath $0))
@@ -20,27 +21,37 @@ dependencyCheck ${dependency[@]}
 Files=(${dependency[@]} "vutil") 
 
 echo -e "Dependencies: \n${dependency[@]}"
-echo ${Files[@]}
+echo "Main entry : vutil"
 echo "Program directory : $PROGRAM_DIR"
+
+GlassInstall() {
+    ln -s "$PROGRAM_DIR/looking-glass-helper.sh" "$target/glass-helper"
+    chmod +x "$target/glass-helper"
+
+}
 
 Install() {
     for file in ${Files[@]} 
     do
-        echo $file
         if [[ ! -f "/usr/bin/$file" ]];then
+            echo "Linking file : $file"
             ln -s "$PROGRAM_DIR/$file" $target
         fi
     done
+    echo "Installing done!"
+    exit 0
 }
 
 Remove(){
     for file in ${Files[@]} 
     do
-        if [[ ! -f "/usr/bin/$file" ]];then
+        if [[ -f "/usr/bin/$file" ]];then
             echo "Unlinking file : $file"
-            unlink "$PROGRAM_DIR/$file" $target
+            unlink "$target/$file" 
         fi
     done
+    echo "Succesfully remove vutil!"
+    exit 0
 }
 
 EXIT=0
@@ -65,14 +76,20 @@ if [[ -z $1 ]];then
        do
            echo -ne "$txt\n"
        done
-       read -p "Command please: $prompt_text" answer
-
+       #read -p "Command please: $prompt_text" answer
+       read -p "$prompt_text" answer
+       echo -e "---------------------------"
        case $answer in 
-           "install" | 1 )
+           "install" | "1" )
+               GlassInstall
+               Install
             ;;
-           "uninstall" | 2 )
+           "uninstall" | "2" )
+               Remove
             ;;
            "exit" | 0 )
+               echo "Exiting installer"
+               exit 1
             ;;
        esac
        trap "ExitInstaller" 2
