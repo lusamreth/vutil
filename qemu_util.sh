@@ -266,7 +266,7 @@ stopHook() {
 function stop_vm {
     domain=$1
     echo "Shutting down vm $domain..."
-    virsh shutdown $domain
+    timeout -k 30 20 virsh shutdown $domain
     echo "Sucessfully shutdown"
 }
 

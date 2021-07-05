@@ -85,9 +85,8 @@ MapArg() {
         # skip if arg is to set domain name 
         [[ $i == $DomainIndex ]] || [[ $i == $((DomainIndex - 1)) ]] && continue
         pair_args_keys+=($arg)
-
         #predict if nxt arg is prefix command / argument
-        if [[ ! $(isPrefix $next) ]];then
+        if [[ $(isPrefix $next) == false ]];then
            pair_args[$arg]="$next" && continue
         fi
     }
@@ -146,7 +145,7 @@ IndependentCommands() {
 
 function check_exception {
     # if both default and -d is passed prioritize -d instead
-    if [[ ! $DomainISSet ]];then
+    if [[ !$DomainISSet ]];then
         if [[ -f "/tmp/vutil_default_domain" ]];then
             default=$(cat "/tmp/vutil_default_domain") 
             if [[ -n $default ]];then
@@ -161,7 +160,6 @@ function check_exception {
             exit
         fi
     fi
-    
     # Test domain
     FAILURE="$(virsh dumpxml $DOMAIN 2>&1 >/dev/null)"
     if [[ -n $FAILURE ]];then
@@ -186,9 +184,10 @@ Mapper() {
             MountPulseaudio 
             ;;
         "--shutdown" | "-off" | "-sd")
+            echo "DOM $DOMAIN"
             stop_vm $DOMAIN
             ;;
-        "--destroy" | "--ds" )
+        "--destroy" | "-ds" )
             destroyVm $DOMAIN
             ;;
         "--setup" | "-s")
@@ -214,7 +213,7 @@ Mapper() {
 function scan_commands {
     for key in "${pair_args_keys[@]}"
     do
-        secondary_arg="${pair_args["$key"]}"
+        secondary_arg="${pair_args[$key]}"
         if [[ $DomainISSet == false ]];then 
             IndependentCommands $key $secondary_arg 
             # IndependentCommands cannot run domain-based command
